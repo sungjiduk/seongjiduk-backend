@@ -12,6 +12,7 @@ import com.sungjiduk.backend.trip.entity.TripStop;
 import com.sungjiduk.backend.trip.exception.TripNotFoundException;
 import com.sungjiduk.backend.trip.repository.TripPlanRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -106,8 +107,11 @@ public class TripService {
         return List.of(new TripSummaryResponse(10L, "러브라이브! 뮤즈 성지순례", 3, "SAVED"));
     }
 
+    @Transactional(readOnly = true)
     public TripResponse findTrip(Long tripId) {
-        return mockTrip(tripId, 3);
+        TripPlan plan = tripPlanRepository.findById(tripId)
+                .orElseThrow(() -> new TripNotFoundException(tripId));
+        return toResponse(plan);
     }
 
     public void delete(Long tripId) {
