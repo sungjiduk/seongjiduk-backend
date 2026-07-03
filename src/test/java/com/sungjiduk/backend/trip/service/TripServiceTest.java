@@ -120,6 +120,43 @@ class TripServiceTest {
     }
 
     @Nested
+    @DisplayName("findTrip은")
+    class FindTrip {
+
+        @Test
+        @DisplayName("저장된 일정의 Day와 stop을 담아 반환한다")
+        void returnsTripDetail() {
+            // given
+            TripResponse created = tripService.generate(new TripGenerateRequest(
+                    1L, 2, "NORMAL", "Tokyo Station", "PILGRIMAGE_ONLY",
+                    List.of(10L, 20L, 30L, 40L), List.of()));
+
+            // when
+            TripResponse found = tripService.findTrip(created.tripId());
+
+            // then
+            assertThat(found.tripId()).isEqualTo(created.tripId());
+            assertThat(found.days()).hasSize(2);
+            List<Long> spotIds = found.days().stream()
+                    .flatMap(day -> day.stops().stream())
+                    .map(TripResponse.Stop::spotId)
+                    .toList();
+            assertThat(spotIds).containsExactlyInAnyOrder(10L, 20L, 30L, 40L);
+        }
+
+        @Test
+        @DisplayName("없는 일정이면 TripNotFoundException을 던진다")
+        void throwsWhenTripNotFound() {
+            // given
+            Long missingTripId = 999L;
+
+            // when / then
+            assertThatThrownBy(() -> tripService.findTrip(missingTripId))
+                    .isInstanceOf(TripNotFoundException.class);
+        }
+    }
+
+    @Nested
     @DisplayName("save는")
     class Save {
 
