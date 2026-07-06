@@ -9,18 +9,25 @@ import com.sungjiduk.backend.trip.entity.TripPlan;
 import com.sungjiduk.backend.trip.entity.TripStatus;
 import com.sungjiduk.backend.trip.entity.TripStop;
 import com.sungjiduk.backend.trip.exception.TripNotFoundException;
+import com.sungjiduk.backend.trip.infra.AiTripClient;
+import com.sungjiduk.backend.trip.infra.dto.AiTripLayout;
 import com.sungjiduk.backend.trip.repository.TripPlanRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.willReturn;
+import static org.mockito.BDDMockito.willThrow;
 
 @SpringBootTest
 @Transactional
@@ -32,6 +39,16 @@ class TripServiceTest {
 
     @Autowired
     private TripPlanRepository tripPlanRepository;
+
+    // 기본은 ai-service 미가용 → 로컬 폴백 경로를 결정론적으로 검증한다.
+    // AI 성공 경로 테스트에서만 willReturn으로 재정의한다.
+    @MockitoBean
+    private AiTripClient aiTripClient;
+
+    @BeforeEach
+    void aiServiceDownByDefault() {
+        willThrow(new RuntimeException("ai-service down")).given(aiTripClient).generate(any());
+    }
 
     @Nested
     @DisplayName("generate는")
@@ -358,6 +375,43 @@ class TripServiceTest {
             // when / then
             assertThatThrownBy(() -> tripService.regenerate(999L, request))
                     .isInstanceOf(TripNotFoundException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("ai-service가 응답하면")
+    class AiLayout {
+
+        @Test
+        @DisplayName("AI가 만든 제목·요약·이유·이름을 일정에 반영한다")
+        void appliesAiTitleSummaryReasonAndName() {
+            // given
+            willReturn(new AiTripLayout(
+                    "AI가 다듬은 뮤즈 성지순례",
+                    List.of(new AiTripLayout.Day(1, "아키하바라 감성 산책",
+                            List.of(new AiTripLayout.Stop(
+                                    1, "PILGRIMAGE", 10L, "とんかつ屋さん",
+                                    "10:00", 40, "9화 명장면의 무대라 놓칠 수 없어요.")))),
+                    "AI가 만든 공유 문구",
+                    "openai")).given(aiTripClient).generate(any());
+            TripGenerateRequest request = new TripGenerateRequest(
+                    1L, 1, "NORMAL", "Tokyo Station", "PILGRIMAGE_ONLY",
+                    List.of(10L), List.of());
+
+            // when
+            TripResponse response = tripService.generate(request);
+
+            // then
+            TripPlan saved = tripPlanRepository.findById(response.tripId()).orElseThrow();
+            assertThat(saved.getTitle()).isEqualTo("AI가 다듬은 뮤즈 성지순례");
+            assertThat(saved.getDays()).hasSize(1);
+            assertThat(saved.getDays().get(0).getSummary()).isEqualTo("아키하바라 감성 산책");
+            TripStop stop = saved.getDays().get(0).getStops().get(0);
+            assertThat(stop.getPilgrimageSpotId()).isEqualTo(10L);
+            assertThat(stop.getName()).isEqualTo("とんかつ屋さん");
+            assertThat(stop.getReason()).isEqualTo("9화 명장면의 무대라 놓칠 수 없어요.");
+            assertThat(response.days().get(0).stops().get(0).reason())
+                    .isEqualTo("9화 명장면의 무대라 놓칠 수 없어요.");
         }
     }
 }

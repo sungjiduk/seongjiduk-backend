@@ -50,6 +50,10 @@ public class TripStop {
     @Column(name = "seq_no", nullable = false)
     private int sequence;
 
+    /** 방문 장소 이름 스냅샷(응답·공유용). AI/로컬 배치 시 채운다. */
+    @Column(length = 100)
+    private String name;
+
     /** MVP: mock 시간 문자열(예: "10:00") */
     @Column(name = "arrival_time", length = 10)
     private String arrivalTime;
@@ -57,17 +61,23 @@ public class TripStop {
     @Column(name = "stay_minutes")
     private int stayMinutes;
 
+    /** AI가 생성한 방문 이유. 로컬 폴백 배치에서는 null. */
+    @Column(length = 500)
+    private String reason;
+
     private LocalDateTime createdAt = LocalDateTime.now();
 
     @Builder
     private TripStop(SpotType spotType, Long pilgrimageSpotId, Long nearbyAttractionId,
-                    int sequence, String arrivalTime, int stayMinutes) {
+                    int sequence, String name, String arrivalTime, int stayMinutes, String reason) {
         this.spotType = spotType;
         this.pilgrimageSpotId = pilgrimageSpotId;
         this.nearbyAttractionId = nearbyAttractionId;
         this.sequence = sequence;
+        this.name = name;
         this.arrivalTime = arrivalTime;
         this.stayMinutes = stayMinutes;
+        this.reason = reason;
     }
 
     void assignDay(TripDay tripDay) {
