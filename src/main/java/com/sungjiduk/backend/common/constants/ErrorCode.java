@@ -30,6 +30,7 @@ public enum ErrorCode {
     CONTENT_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 작품을 찾을 수 없습니다."),
 
     // Spot쪽
+    SPOT_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 성지를 찾을 수 없습니다."),
     ANITABI_FETCH_FAILED(HttpStatus.BAD_GATEWAY, "Anitabi 성지 데이터를 불러오지 못했습니다."),
 
     ;
