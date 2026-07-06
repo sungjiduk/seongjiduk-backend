@@ -27,6 +27,8 @@ import java.util.Optional;
 public class SpotImportService {
 
     private static final String SOURCE_NAME = "Anitabi";
+    /** 애니 장면 스크린샷 링크용 레퍼런스 sourceName (라이선스상 핫링크만, 재호스팅 금지). */
+    private static final String SCENE_IMAGE_SOURCE = "Anitabi:scene-image";
     private static final int DEFAULT_DURATION_MIN = 30;
 
     private final ContentRepository contentRepository;
@@ -106,6 +108,7 @@ public class SpotImportService {
             isNew = true;
         }
         upsertReference(spot, point);
+        upsertSceneImage(spot, point);
         return isNew;
     }
 
@@ -115,6 +118,18 @@ public class SpotImportService {
                 .ifPresentOrElse(
                         reference -> reference.update(title, point.originURL(), SOURCE_NAME),
                         () -> referenceRepository.save(SpotReference.create(spot, title, point.originURL(), SOURCE_NAME))
+                );
+    }
+
+    private void upsertSceneImage(PilgrimageSpot spot, AnitabiPoint point) {
+        if (point.image() == null || point.image().isBlank()) {
+            return;
+        }
+        String title = referenceTitle(point);
+        referenceRepository.findBySpotAndSourceName(spot, SCENE_IMAGE_SOURCE)
+                .ifPresentOrElse(
+                        reference -> reference.update(title, point.image(), SCENE_IMAGE_SOURCE),
+                        () -> referenceRepository.save(SpotReference.create(spot, title, point.image(), SCENE_IMAGE_SOURCE))
                 );
     }
 

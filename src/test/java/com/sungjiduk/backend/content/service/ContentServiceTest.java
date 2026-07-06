@@ -9,10 +9,12 @@ import com.sungjiduk.backend.content.dto.response.ContentSummaryResponse;
 import com.sungjiduk.backend.content.entity.Content;
 import com.sungjiduk.backend.content.repository.ContentRepository;
 import com.sungjiduk.backend.spot.entity.PilgrimageSpot;
+import com.sungjiduk.backend.spot.entity.SpotReference;
 import com.sungjiduk.backend.spot.infra.AiDescribeClient;
 import com.sungjiduk.backend.spot.infra.dto.AiDescribeResult;
 import com.sungjiduk.backend.spot.infra.dto.AiDescribeResult.AiSpotDescription;
 import com.sungjiduk.backend.spot.repository.PilgrimageSpotRepository;
+import com.sungjiduk.backend.spot.repository.SpotReferenceRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -45,6 +47,9 @@ class ContentServiceTest {
 
     @Autowired
     private PilgrimageSpotRepository spotRepository;
+
+    @Autowired
+    private SpotReferenceRepository referenceRepository;
 
     @MockitoBean
     private RefreshTokenRepository refreshTokenRepository;
@@ -148,6 +153,26 @@ class ContentServiceTest {
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(ErrorCode.CONTENT_NOT_FOUND);
+        }
+
+        @Test
+        @DisplayName("성지의 애니 장면 이미지 URL을 함께 반환한다")
+        void returnsSceneImageUrl() {
+            // given
+            Content content = saveContent("러브라이브!");
+            PilgrimageSpot spot = spotRepository.save(PilgrimageSpot.create(
+                    content, "神田明神", "東京都千代田区",
+                    new BigDecimal("35.7020000"), new BigDecimal("139.7680000"),
+                    "千代田区", 40, "https://maps.example/kanda"));
+            referenceRepository.save(SpotReference.create(
+                    spot, "神田明神 EP1", "https://image.anitabi.cn/points/k1.jpg?plan=h160", "Anitabi:scene-image"));
+
+            // when
+            ContentSpotsResponse response = contentService.findContentSpots(content.getId());
+
+            // then
+            assertThat(response.spots().get(0).sceneImageUrl())
+                    .isEqualTo("https://image.anitabi.cn/points/k1.jpg?plan=h160");
         }
 
         @Test

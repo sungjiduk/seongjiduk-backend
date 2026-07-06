@@ -10,7 +10,9 @@ import com.sungjiduk.backend.spot.infra.AiDescribeClient;
 import com.sungjiduk.backend.spot.infra.dto.AiDescribeRequest;
 import com.sungjiduk.backend.spot.infra.dto.AiDescribeResult;
 import com.sungjiduk.backend.spot.infra.dto.AiDescribeResult.AiSpotDescription;
+import com.sungjiduk.backend.spot.entity.SpotReference;
 import com.sungjiduk.backend.spot.repository.PilgrimageSpotRepository;
+import com.sungjiduk.backend.spot.repository.SpotReferenceRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,8 +24,11 @@ import java.util.concurrent.ConcurrentHashMap;
 @Transactional(readOnly = true)
 public class ContentService {
 
+    private static final String SCENE_IMAGE_SOURCE = "Anitabi:scene-image";
+
     private final ContentRepository contentRepository;
     private final PilgrimageSpotRepository spotRepository;
+    private final SpotReferenceRepository referenceRepository;
     private final AiDescribeClient aiDescribeClient;
 
     /**
@@ -35,10 +40,12 @@ public class ContentService {
     public ContentService(
             ContentRepository contentRepository,
             PilgrimageSpotRepository spotRepository,
+            SpotReferenceRepository referenceRepository,
             AiDescribeClient aiDescribeClient
     ) {
         this.contentRepository = contentRepository;
         this.spotRepository = spotRepository;
+        this.referenceRepository = referenceRepository;
         this.aiDescribeClient = aiDescribeClient;
     }
 
@@ -67,6 +74,7 @@ public class ContentService {
         List<PilgrimageSpot> spots = spotRepository.findByContentOrderByIdAsc(content);
 
         fetchMissingDescriptions(content, spots);
+        Map<Long, String> sceneImages = sceneImagesBySpotId(spots);
 
         List<ContentSpotsResponse.SpotSummary> summaries = spots.stream()
                 .map(spot -> {
@@ -81,10 +89,23 @@ public class ContentService {
                             spot.getRecommendedDurationMin(),
                             spot.getReferenceUrl(),
                             description == null ? null : description.sceneDescription(),
-                            description == null ? null : description.specialPoint());
+                            description == null ? null : description.specialPoint(),
+                            sceneImages.get(spot.getId()));
                 })
                 .toList();
         return new ContentSpotsResponse(content.getId(), content.getTitle(), summaries);
+    }
+
+    /** 성지별 애니 장면 이미지 URL(Anitabi 핫링크). 없으면 map에 없음. */
+    private Map<Long, String> sceneImagesBySpotId(List<PilgrimageSpot> spots) {
+        if (spots.isEmpty()) {
+            return Map.of();
+        }
+        return referenceRepository.findBySpotInAndSourceName(spots, SCENE_IMAGE_SOURCE).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        reference -> reference.getSpot().getId(),
+                        SpotReference::getUrl,
+                        (first, second) -> first));
     }
 
     /**
