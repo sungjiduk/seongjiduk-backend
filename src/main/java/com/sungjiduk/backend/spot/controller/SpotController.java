@@ -2,6 +2,7 @@ package com.sungjiduk.backend.spot.controller;
 
 import com.sungjiduk.backend.common.api.ApiResponse;
 import com.sungjiduk.backend.spot.dto.request.SpotReportCreateRequest;
+import com.sungjiduk.backend.spot.dto.response.NearbyAttractionsResponse;
 import com.sungjiduk.backend.spot.dto.response.SpotDetailResponse;
 import com.sungjiduk.backend.spot.dto.response.SpotReportResponse;
 import com.sungjiduk.backend.spot.service.SpotService;
@@ -25,6 +26,12 @@ public class SpotController {
     @GetMapping("/api/spots/{spotId}")
     public ApiResponse<SpotDetailResponse> spot(@PathVariable Long spotId) {
         return ApiResponse.ok(spotService.findSpot(spotId));
+    }
+
+    /** 성지 주변 관광 명소 (Google Places, 키 없으면 빈 목록 — 프론트는 섹션 숨김) */
+    @GetMapping("/api/spots/{spotId}/nearby-attractions")
+    public ApiResponse<NearbyAttractionsResponse> nearbyAttractions(@PathVariable Long spotId) {
+        return ApiResponse.ok(spotService.findNearbyAttractions(spotId));
     }
 
     @PostMapping("/api/spot-reports")
