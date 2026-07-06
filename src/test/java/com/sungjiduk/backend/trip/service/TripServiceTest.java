@@ -11,6 +11,7 @@ import com.sungjiduk.backend.trip.entity.TripStop;
 import com.sungjiduk.backend.trip.exception.TripNotFoundException;
 import com.sungjiduk.backend.trip.infra.AiTripClient;
 import com.sungjiduk.backend.trip.infra.dto.AiTripLayout;
+import com.sungjiduk.backend.attraction.repository.NearbyAttractionRepository;
 import com.sungjiduk.backend.trip.repository.TripPlanRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -40,6 +41,9 @@ class TripServiceTest {
     @Autowired
     private TripPlanRepository tripPlanRepository;
 
+    @Autowired
+    private NearbyAttractionRepository attractionRepository;
+
     // 기본은 ai-service 미가용 → 로컬 폴백 경로를 결정론적으로 검증한다.
     // AI 성공 경로 테스트에서만 willReturn으로 재정의한다.
     @MockitoBean
@@ -48,6 +52,54 @@ class TripServiceTest {
     @BeforeEach
     void aiServiceDownByDefault() {
         willThrow(new RuntimeException("ai-service down")).given(aiTripClient).generate(any());
+    }
+
+    @Nested
+    @DisplayName("관광지를 담아 generate하면")
+    class GenerateWithAttractions {
+
+        private TripGenerateRequest requestWith(java.util.List<TripGenerateRequest.AttractionInput> attractions) {
+            return new TripGenerateRequest(
+                    1L, 1, "NORMAL", "Tokyo", "PILGRIMAGE_ONLY",
+                    java.util.List.of(10L), java.util.List.of(), attractions, null);
+        }
+
+        @Test
+        @DisplayName("관광지를 mapsUrl 멱등으로 영속화하고 ATTRACTION stop으로 배치한다")
+        void persistsAttractionsAndAddsStops() {
+            // given
+            var attractions = java.util.List.of(
+                    new TripGenerateRequest.AttractionInput("간다 신사", "신사", 35.702, 139.768, "https://maps/kanda"));
+
+            // when — 같은 관광지로 두 번 생성해도 한 행만 생긴다
+            TripResponse first = tripService.generate(requestWith(attractions));
+            tripService.generate(requestWith(attractions));
+
+            // then
+            assertThat(attractionRepository.findAll()).hasSize(1);
+            var stops = first.days().stream().flatMap(d -> d.stops().stream()).toList();
+            assertThat(stops).anyMatch(stop -> "ATTRACTION".equals(stop.spotType())
+                    && "간다 신사".equals(stop.name()));
+        }
+
+        @Test
+        @DisplayName("재생성 시 selectedAttractionIds로 기존 관광지를 유지한다")
+        void regenerateKeepsAttractionsByIds() {
+            // given
+            TripResponse created = tripService.generate(requestWith(java.util.List.of(
+                    new TripGenerateRequest.AttractionInput("간다 신사", "신사", 35.702, 139.768, "https://maps/kanda"))));
+            Long attractionId = attractionRepository.findAll().get(0).getId();
+
+            // when
+            TripResponse regenerated = tripService.regenerate(created.tripId(), new TripGenerateRequest(
+                    1L, 1, "NORMAL", "Tokyo", "PILGRIMAGE_ONLY",
+                    java.util.List.of(10L), java.util.List.of(), null, java.util.List.of(attractionId)));
+
+            // then
+            var stops = regenerated.days().stream().flatMap(d -> d.stops().stream()).toList();
+            assertThat(stops).anyMatch(stop -> "ATTRACTION".equals(stop.spotType())
+                    && "간다 신사".equals(stop.name()));
+        }
     }
 
     @Nested
@@ -60,7 +112,7 @@ class TripServiceTest {
             // given
             TripGenerateRequest request = new TripGenerateRequest(
                     1L, 3, "NORMAL", "Tokyo Station", "PILGRIMAGE_ONLY",
-                    List.of(1L, 2L, 3L), List.of());
+                    List.of(1L, 2L, 3L), List.of(), null, null);
 
             // when
             TripResponse response = tripService.generate(request);
@@ -79,7 +131,7 @@ class TripServiceTest {
             // given
             TripGenerateRequest request = new TripGenerateRequest(
                     1L, 2, "NORMAL", "Tokyo Station", "PILGRIMAGE_ONLY",
-                    List.of(10L, 20L, 30L, 40L), List.of());
+                    List.of(10L, 20L, 30L, 40L), List.of(), null, null);
 
             // when
             TripResponse response = tripService.generate(request);
@@ -102,7 +154,7 @@ class TripServiceTest {
             // given
             TripGenerateRequest request = new TripGenerateRequest(
                     1L, 1, "NORMAL", "Tokyo Station", "PILGRIMAGE_ONLY",
-                    List.of(10L, 20L, 30L), List.of(20L));
+                    List.of(10L, 20L, 30L), List.of(20L), null, null);
 
             // when
             TripResponse response = tripService.generate(request);
@@ -122,7 +174,7 @@ class TripServiceTest {
             // given
             TripGenerateRequest request = new TripGenerateRequest(
                     1L, 2, "NORMAL", "Tokyo Station", "PILGRIMAGE_ONLY",
-                    List.of(10L, 20L, 30L, 40L), List.of());
+                    List.of(10L, 20L, 30L, 40L), List.of(), null, null);
 
             // when
             TripResponse response = tripService.generate(request);
@@ -147,7 +199,7 @@ class TripServiceTest {
             // given
             TripResponse created = tripService.generate(new TripGenerateRequest(
                     1L, 2, "NORMAL", "Tokyo Station", "PILGRIMAGE_ONLY",
-                    List.of(10L, 20L, 30L, 40L), List.of()));
+                    List.of(10L, 20L, 30L, 40L), List.of(), null, null));
 
             // when
             TripResponse found = tripService.findTrip(created.tripId());
@@ -341,12 +393,12 @@ class TripServiceTest {
             // given
             TripResponse created = tripService.generate(new TripGenerateRequest(
                     1L, 2, "NORMAL", "Tokyo Station", "PILGRIMAGE_ONLY",
-                    List.of(10L, 20L), List.of()));
+                    List.of(10L, 20L), List.of(), null, null));
 
             // when — 30 추가, 20 제외
             TripResponse result = tripService.regenerate(created.tripId(), new TripGenerateRequest(
                     1L, 2, "NORMAL", "Tokyo Station", "PILGRIMAGE_ONLY",
-                    List.of(10L, 20L, 30L), List.of(20L)));
+                    List.of(10L, 20L, 30L), List.of(20L), null, null));
 
             // then
             assertThat(result.tripId()).isEqualTo(created.tripId());
@@ -370,7 +422,7 @@ class TripServiceTest {
             // given
             TripGenerateRequest request = new TripGenerateRequest(
                     1L, 2, "NORMAL", "Tokyo Station", "PILGRIMAGE_ONLY",
-                    List.of(10L), List.of());
+                    List.of(10L), List.of(), null, null);
 
             // when / then
             assertThatThrownBy(() -> tripService.regenerate(999L, request))
@@ -396,7 +448,7 @@ class TripServiceTest {
                     "openai")).given(aiTripClient).generate(any());
             TripGenerateRequest request = new TripGenerateRequest(
                     1L, 1, "NORMAL", "Tokyo Station", "PILGRIMAGE_ONLY",
-                    List.of(10L), List.of());
+                    List.of(10L), List.of(), null, null);
 
             // when
             TripResponse response = tripService.generate(request);

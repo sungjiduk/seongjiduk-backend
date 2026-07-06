@@ -1,5 +1,7 @@
 package com.sungjiduk.backend.trip.service;
 
+import com.sungjiduk.backend.attraction.entity.NearbyAttraction;
+import com.sungjiduk.backend.attraction.repository.NearbyAttractionRepository;
 import com.sungjiduk.backend.content.repository.ContentRepository;
 import com.sungjiduk.backend.spot.entity.PilgrimageSpot;
 import com.sungjiduk.backend.spot.repository.PilgrimageSpotRepository;
@@ -39,17 +41,20 @@ public class TripService {
     private final TripPlanRepository tripPlanRepository;
     private final PilgrimageSpotRepository spotRepository;
     private final ContentRepository contentRepository;
+    private final NearbyAttractionRepository attractionRepository;
     private final AiTripClient aiTripClient;
 
     public TripService(
             TripPlanRepository tripPlanRepository,
             PilgrimageSpotRepository spotRepository,
             ContentRepository contentRepository,
+            NearbyAttractionRepository attractionRepository,
             AiTripClient aiTripClient
     ) {
         this.tripPlanRepository = tripPlanRepository;
         this.spotRepository = spotRepository;
         this.contentRepository = contentRepository;
+        this.attractionRepository = attractionRepository;
         this.aiTripClient = aiTripClient;
     }
 
@@ -77,13 +82,38 @@ public class TripService {
      */
     private void layoutRoute(TripPlan plan, TripGenerateRequest request) {
         Map<Long, PilgrimageSpot> spotsById = loadCandidateSpots(request);
+        List<NearbyAttraction> attractions = resolveAttractions(request);
         try {
-            AiTripLayout layout = aiTripClient.generate(toAiRequest(plan, request, spotsById));
+            AiTripLayout layout = aiTripClient.generate(toAiRequest(plan, request, spotsById, attractions));
             applyAiLayout(plan, layout);
         } catch (RuntimeException e) {
             log.warn("ai-service 일정 생성 실패, 로컬 배치로 폴백합니다: {}", e.getMessage());
-            applyLocalLayout(plan, request, spotsById);
+            applyLocalLayout(plan, request, spotsById, attractions);
         }
+    }
+
+    /** 새로 담은 관광지는 mapsUrl 멱등 upsert로 영속화하고, 재생성용 id들은 로드해 합친다. */
+    private List<NearbyAttraction> resolveAttractions(TripGenerateRequest request) {
+        Map<Long, NearbyAttraction> merged = new LinkedHashMap<>();
+        if (request.attractions() != null) {
+            for (TripGenerateRequest.AttractionInput input : request.attractions()) {
+                if (input.mapsUrl() == null || input.mapsUrl().isBlank()) {
+                    continue;
+                }
+                NearbyAttraction attraction = attractionRepository.findByMapsUrl(input.mapsUrl())
+                        .orElseGet(() -> attractionRepository.save(NearbyAttraction.create(
+                                input.name(), input.category(),
+                                java.math.BigDecimal.valueOf(input.lat()),
+                                java.math.BigDecimal.valueOf(input.lng()),
+                                input.mapsUrl())));
+                merged.put(attraction.getId(), attraction);
+            }
+        }
+        if (request.selectedAttractionIds() != null && !request.selectedAttractionIds().isEmpty()) {
+            attractionRepository.findAllById(request.selectedAttractionIds())
+                    .forEach(a -> merged.putIfAbsent(a.getId(), a));
+        }
+        return new ArrayList<>(merged.values());
     }
 
     /** 선택 스팟(제외 제거)을 선택 순서대로 로드. 이름/도시는 AI 후보·로컬 이름 스냅샷에 쓴다. */
@@ -105,7 +135,8 @@ public class TripService {
         return ordered;
     }
 
-    private AiTripRequest toAiRequest(TripPlan plan, TripGenerateRequest request, Map<Long, PilgrimageSpot> spotsById) {
+    private AiTripRequest toAiRequest(TripPlan plan, TripGenerateRequest request, Map<Long, PilgrimageSpot> spotsById,
+                                      List<NearbyAttraction> attractions) {
         String title = contentRepository.findById(request.contentId())
                 .map(content -> content.getTitle())
                 .orElse(null);
@@ -117,9 +148,15 @@ public class TripService {
                         spot.getId(), spot.getName(), spot.getCity(),
                         spot.getLat() == null ? null : spot.getLat().doubleValue(),
                         spot.getLng() == null ? null : spot.getLng().doubleValue(),
-                        spot.getRecommendedDurationMin()));
+                        spot.getRecommendedDurationMin(), "PILGRIMAGE"));
             }
         });
+        for (NearbyAttraction attraction : attractions) {
+            candidates.add(new AiTripRequest.CandidateSpot(
+                    attraction.getId(), attraction.getName(), null,
+                    attraction.getLat().doubleValue(), attraction.getLng().doubleValue(),
+                    30, "ATTRACTION"));
+        }
 
         return new AiTripRequest(
                 new AiTripRequest.Content(request.contentId(), title),
@@ -164,7 +201,8 @@ public class TripService {
     }
 
     /** ai-service 미가용 시 로컬 라운드로빈 배치(이름 스냅샷만 채우고 이유는 비운다). */
-    private void applyLocalLayout(TripPlan plan, TripGenerateRequest request, Map<Long, PilgrimageSpot> spotsById) {
+    private void applyLocalLayout(TripPlan plan, TripGenerateRequest request, Map<Long, PilgrimageSpot> spotsById,
+                                  List<NearbyAttraction> attractions) {
         plan.getDays().clear();
 
         List<TripDay> days = new ArrayList<>();
@@ -190,6 +228,19 @@ public class TripService {
                     .name(spot != null ? spot.getName() : null)
                     .arrivalTime(String.format("%02d:00", 9 + sequence))
                     .stayMinutes(spot != null ? spot.getRecommendedDurationMin() : 30)
+                    .build());
+        }
+        for (int i = 0; i < attractions.size(); i++) {
+            NearbyAttraction attraction = attractions.get(i);
+            TripDay day = days.get((spotIds.size() + i) % days.size());
+            int sequence = day.getStops().size() + 1;
+            day.addStop(TripStop.builder()
+                    .spotType(SpotType.ATTRACTION)
+                    .nearbyAttractionId(attraction.getId())
+                    .sequence(sequence)
+                    .name(attraction.getName())
+                    .arrivalTime(String.format("%02d:00", 9 + sequence))
+                    .stayMinutes(30)
                     .build());
         }
     }

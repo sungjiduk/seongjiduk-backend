@@ -30,7 +30,8 @@ public record AiTripRequest(
             String city,
             Double lat,             // 지리 기반 배치용 (없으면 ai-service가 순차 분배 폴백)
             Double lng,
-            int recommendedDurationMin
+            int recommendedDurationMin,
+            String type             // PILGRIMAGE | ATTRACTION
     ) {
     }
 }
