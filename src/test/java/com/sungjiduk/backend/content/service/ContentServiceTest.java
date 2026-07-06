@@ -9,6 +9,9 @@ import com.sungjiduk.backend.content.dto.response.ContentSummaryResponse;
 import com.sungjiduk.backend.content.entity.Content;
 import com.sungjiduk.backend.content.repository.ContentRepository;
 import com.sungjiduk.backend.spot.entity.PilgrimageSpot;
+import com.sungjiduk.backend.spot.infra.AiDescribeClient;
+import com.sungjiduk.backend.spot.infra.dto.AiDescribeResult;
+import com.sungjiduk.backend.spot.infra.dto.AiDescribeResult.AiSpotDescription;
 import com.sungjiduk.backend.spot.repository.PilgrimageSpotRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -17,12 +20,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClientException;
 
 import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.times;
 
 @SpringBootTest
 @Transactional
@@ -40,6 +48,10 @@ class ContentServiceTest {
 
     @MockitoBean
     private RefreshTokenRepository refreshTokenRepository;
+
+    // ai-service 호출은 실제로 하지 않는다.
+    @MockitoBean
+    private AiDescribeClient aiDescribeClient;
 
     private Content saveContent(String title) {
         return contentRepository.save(Content.create(title, "ANIME", "JP", title + " 설명"));
@@ -136,6 +148,70 @@ class ContentServiceTest {
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(ErrorCode.CONTENT_NOT_FOUND);
+        }
+
+        @Test
+        @DisplayName("ai-service의 장면 설명을 성지 목록에 병합한다")
+        void mergesAiDescriptions() {
+            // given
+            Content content = saveContent("러브라이브!");
+            PilgrimageSpot spot = spotRepository.save(PilgrimageSpot.create(
+                    content, "神田明神", "東京都千代田区",
+                    new BigDecimal("35.7020000"), new BigDecimal("139.7680000"),
+                    "千代田区", 40, "https://maps.example/kanda"));
+            given(aiDescribeClient.describe(any())).willReturn(new AiDescribeResult(
+                    content.getId(), "openai",
+                    List.of(new AiSpotDescription(spot.getId(), "에피소드 1의 배경", "전통 신사의 분위기"))));
+
+            // when
+            ContentSpotsResponse response = contentService.findContentSpots(content.getId());
+
+            // then
+            ContentSpotsResponse.SpotSummary summary = response.spots().get(0);
+            assertThat(summary.sceneDescription()).isEqualTo("에피소드 1의 배경");
+            assertThat(summary.specialPoint()).isEqualTo("전통 신사의 분위기");
+        }
+
+        @Test
+        @DisplayName("ai-service 실패 시 설명 없이(null) 목록을 반환한다")
+        void fallsBackToNullDescriptionsOnAiFailure() {
+            // given
+            Content content = saveContent("러브라이브!");
+            spotRepository.save(PilgrimageSpot.create(
+                    content, "神田明神", "東京都千代田区",
+                    new BigDecimal("35.7020000"), new BigDecimal("139.7680000"),
+                    "千代田区", 40, "https://maps.example/kanda"));
+            given(aiDescribeClient.describe(any())).willThrow(new RestClientException("ai-service down"));
+
+            // when
+            ContentSpotsResponse response = contentService.findContentSpots(content.getId());
+
+            // then
+            assertThat(response.spots()).hasSize(1);
+            assertThat(response.spots().get(0).sceneDescription()).isNull();
+            assertThat(response.spots().get(0).specialPoint()).isNull();
+        }
+
+        @Test
+        @DisplayName("같은 성지 재조회 시 ai-service를 다시 호출하지 않는다(캐시)")
+        void cachesDescriptionsPerSpot() {
+            // given
+            Content content = saveContent("러브라이브!");
+            PilgrimageSpot spot = spotRepository.save(PilgrimageSpot.create(
+                    content, "神田明神", "東京都千代田区",
+                    new BigDecimal("35.7020000"), new BigDecimal("139.7680000"),
+                    "千代田区", 40, "https://maps.example/kanda"));
+            given(aiDescribeClient.describe(any())).willReturn(new AiDescribeResult(
+                    content.getId(), "openai",
+                    List.of(new AiSpotDescription(spot.getId(), "에피소드 1의 배경", "전통 신사의 분위기"))));
+
+            // when
+            contentService.findContentSpots(content.getId());
+            ContentSpotsResponse second = contentService.findContentSpots(content.getId());
+
+            // then
+            then(aiDescribeClient).should(times(1)).describe(any());
+            assertThat(second.spots().get(0).sceneDescription()).isEqualTo("에피소드 1의 배경");
         }
     }
 }
