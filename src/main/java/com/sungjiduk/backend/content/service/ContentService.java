@@ -40,16 +40,21 @@ public class ContentService {
     /** 작품별 describe 호출 락(single-flight). 동시 요청 중 첫 요청만 AI를 부르고 나머지는 캐시를 기다린다. */
     private final Map<Long, Object> describeLocks = new ConcurrentHashMap<>();
 
+    /** 프리웜 전용 모델 (비면 ai-service 기본). */
+    private final String prewarmModel;
+
     public ContentService(
             ContentRepository contentRepository,
             PilgrimageSpotRepository spotRepository,
             SpotReferenceRepository referenceRepository,
-            AiDescribeClient aiDescribeClient
+            AiDescribeClient aiDescribeClient,
+            @org.springframework.beans.factory.annotation.Value("${seongjiduk.ai-service.prewarm-model:}") String prewarmModel
     ) {
         this.contentRepository = contentRepository;
         this.spotRepository = spotRepository;
         this.referenceRepository = referenceRepository;
         this.aiDescribeClient = aiDescribeClient;
+        this.prewarmModel = prewarmModel;
     }
 
     public List<ContentSummaryResponse> findContents() {
@@ -76,7 +81,7 @@ public class ContentService {
         Content content = contentRepository.findByIdOrThrow(contentId);
         List<PilgrimageSpot> spots = spotRepository.findByContentOrderByIdAsc(content);
 
-        fetchMissingDescriptions(content, spots);
+        fetchMissingDescriptions(content, spots, null);
         Map<Long, String> sceneImages = sceneImagesBySpotId(spots);
 
         List<ContentSpotsResponse.SpotSummary> summaries = spots.stream()
@@ -115,7 +120,18 @@ public class ContentService {
      * 캐시에 없는 성지만 ai-service에 설명을 요청한다.
      * 실패해도 목록 조회는 계속돼야 하므로(설명만 null) 예외는 삼킨다.
      */
-    private void fetchMissingDescriptions(Content content, List<PilgrimageSpot> spots) {
+    /**
+     * 임포트 직후 백그라운드 사전 생성용 — 설명 캐시를 미리 채운다.
+     * single-flight 락을 공유하므로 사용자 요청과 겹쳐도 GPT는 1회만 호출된다.
+     */
+    @Transactional(readOnly = true)
+    public void prewarmDescriptions(Long contentId) {
+        Content content = contentRepository.findByIdOrThrow(contentId);
+        List<PilgrimageSpot> spots = spotRepository.findByContentOrderByIdAsc(content);
+        fetchMissingDescriptions(content, spots, prewarmModel == null || prewarmModel.isBlank() ? null : prewarmModel);
+    }
+
+    private void fetchMissingDescriptions(Content content, List<PilgrimageSpot> spots, String model) {
         if (spots.stream().allMatch(spot -> descriptionCache.containsKey(spot.getId()))) {
             return;
         }
@@ -128,11 +144,11 @@ public class ContentService {
             if (missing.isEmpty()) {
                 return;
             }
-            callDescribe(content, missing);
+            callDescribe(content, missing, model);
         }
     }
 
-    private void callDescribe(Content content, List<PilgrimageSpot> missing) {
+    private void callDescribe(Content content, List<PilgrimageSpot> missing, String model) {
         try {
             AiDescribeResult result = aiDescribeClient.describe(new AiDescribeRequest(
                     new AiDescribeRequest.ContentInfo(content.getId(), content.getTitle()),
@@ -144,7 +160,8 @@ public class ContentService {
                                     spot.getAddress(),
                                     null,
                                     spot.getReferenceUrl()))
-                            .toList()));
+                            .toList(),
+                    model));
             if (result == null || result.descriptions() == null) {
                 return;
             }

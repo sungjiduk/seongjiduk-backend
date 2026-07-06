@@ -39,6 +39,8 @@ springdoc:
 seongjiduk:
   ai-service:
     base-url: ${AI_SERVICE_BASE_URL:http://localhost:8000}
+    # 임포트 직후 백그라운드 사전 생성에 쓸 모델 (비우면 ai-service 기본, 예: gpt-5.5)
+    prewarm-model: ${AI_PREWARM_MODEL:}
   anitabi:
     base-url: ${ANITABI_BASE_URL:https://api.anitabi.cn}
   geocoding:

@@ -8,7 +8,8 @@ import java.util.List;
  */
 public record AiDescribeRequest(
         ContentInfo content,
-        List<SceneSpot> spots
+        List<SceneSpot> spots,
+        String model            // null이면 ai-service 기본 모델 (프리웜은 상위 모델 지정 가능)
 ) {
 
     public record ContentInfo(Long id, String title) {

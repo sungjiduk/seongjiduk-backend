@@ -3,6 +3,7 @@ package com.sungjiduk.backend.admin.controller;
 import com.sungjiduk.backend.admin.dto.request.SpotImportRequest;
 import com.sungjiduk.backend.common.api.ApiResponse;
 import com.sungjiduk.backend.spot.dto.response.SpotImportResponse;
+import com.sungjiduk.backend.spot.service.SpotDescribePrewarmer;
 import com.sungjiduk.backend.spot.service.SpotImportService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,9 +20,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminSpotImportController {
 
     private final SpotImportService spotImportService;
+    private final SpotDescribePrewarmer prewarmer;
 
-    public AdminSpotImportController(SpotImportService spotImportService) {
+    public AdminSpotImportController(SpotImportService spotImportService, SpotDescribePrewarmer prewarmer) {
         this.spotImportService = spotImportService;
+        this.prewarmer = prewarmer;
     }
 
     @PostMapping("/{contentId}/spots/import")
@@ -29,6 +32,9 @@ public class AdminSpotImportController {
             @PathVariable Long contentId,
             @Valid @RequestBody SpotImportRequest request
     ) {
-        return ApiResponse.ok(spotImportService.importSpots(contentId, request.bangumiId()));
+        SpotImportResponse response = spotImportService.importSpots(contentId, request.bangumiId());
+        // 임포트 트랜잭션 커밋 후 백그라운드로 AI 설명 사전 생성 (첫 사용자 대기 제거)
+        prewarmer.prewarmAsync(contentId);
+        return ApiResponse.ok(response);
     }
 }

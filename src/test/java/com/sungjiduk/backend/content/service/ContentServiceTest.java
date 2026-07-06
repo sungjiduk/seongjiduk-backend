@@ -122,6 +122,33 @@ class ContentServiceTest {
     }
 
     @Nested
+    @DisplayName("prewarmDescriptions는")
+    class PrewarmDescriptions {
+
+        @Test
+        @DisplayName("설명 캐시를 미리 채워 이후 조회가 AI를 재호출하지 않는다")
+        void fillsCacheAhead() {
+            // given
+            Content content = saveContent("러브라이브!");
+            PilgrimageSpot spot = spotRepository.save(PilgrimageSpot.create(
+                    content, "神田明神", "東京都千代田区",
+                    new BigDecimal("35.7020000"), new BigDecimal("139.7680000"),
+                    "千代田区", 40, "https://maps.example/kanda"));
+            given(aiDescribeClient.describe(any())).willReturn(new AiDescribeResult(
+                    content.getId(), "openai",
+                    List.of(new AiSpotDescription(spot.getId(), "프리웜 설명", "프리웜 포인트"))));
+
+            // when
+            contentService.prewarmDescriptions(content.getId());
+            ContentSpotsResponse response = contentService.findContentSpots(content.getId());
+
+            // then — 프리웜 1회만 호출, 조회는 캐시 사용
+            then(aiDescribeClient).should(times(1)).describe(any());
+            assertThat(response.spots().get(0).sceneDescription()).isEqualTo("프리웜 설명");
+        }
+    }
+
+    @Nested
     @DisplayName("findContentSpots는")
     class FindContentSpots {
 
