@@ -114,7 +114,10 @@ public class TripService {
         spotsById.forEach((id, spot) -> {
             if (spot != null) {
                 candidates.add(new AiTripRequest.CandidateSpot(
-                        spot.getId(), spot.getName(), spot.getCity(), spot.getRecommendedDurationMin()));
+                        spot.getId(), spot.getName(), spot.getCity(),
+                        spot.getLat() == null ? null : spot.getLat().doubleValue(),
+                        spot.getLng() == null ? null : spot.getLng().doubleValue(),
+                        spot.getRecommendedDurationMin()));
             }
         });
 
