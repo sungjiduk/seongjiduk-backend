@@ -21,11 +21,17 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClientException;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -215,6 +221,52 @@ class ContentServiceTest {
             assertThat(response.spots()).hasSize(1);
             assertThat(response.spots().get(0).sceneDescription()).isNull();
             assertThat(response.spots().get(0).specialPoint()).isNull();
+        }
+
+        @Test
+        @DisplayName("같은 작품을 동시에 조회해도 ai-service는 1회만 호출한다(single-flight)")
+        void singleFlightOnConcurrentRequests() throws Exception {
+            // given — 워커 스레드가 데이터를 보려면 테스트 트랜잭션을 커밋해야 한다
+            Content content = saveContent("러브라이브!");
+            PilgrimageSpot spot = spotRepository.save(PilgrimageSpot.create(
+                    content, "神田明神", "東京都千代田区",
+                    new BigDecimal("35.7020000"), new BigDecimal("139.7680000"),
+                    "千代田区", 40, "https://maps.example/kanda"));
+            TestTransaction.flagForCommit();
+            TestTransaction.end();
+
+            given(aiDescribeClient.describe(any())).willAnswer(invocation -> {
+                Thread.sleep(300); // 첫 호출이 끝나기 전에 두 번째 요청이 겹치도록
+                return new AiDescribeResult(content.getId(), "openai",
+                        List.of(new AiSpotDescription(spot.getId(), "에피소드 1의 배경", "전통 신사의 분위기")));
+            });
+
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            try {
+                // when — 두 요청을 동시에 출발시킨다
+                CountDownLatch start = new CountDownLatch(1);
+                Future<ContentSpotsResponse> first = pool.submit(() -> {
+                    start.await();
+                    return contentService.findContentSpots(content.getId());
+                });
+                Future<ContentSpotsResponse> second = pool.submit(() -> {
+                    start.await();
+                    return contentService.findContentSpots(content.getId());
+                });
+                start.countDown();
+                ContentSpotsResponse r1 = first.get(15, TimeUnit.SECONDS);
+                ContentSpotsResponse r2 = second.get(15, TimeUnit.SECONDS);
+
+                // then — AI는 1회, 두 응답 모두 설명 포함
+                then(aiDescribeClient).should(times(1)).describe(any());
+                assertThat(r1.spots().get(0).sceneDescription()).isEqualTo("에피소드 1의 배경");
+                assertThat(r2.spots().get(0).sceneDescription()).isEqualTo("에피소드 1의 배경");
+            } finally {
+                pool.shutdownNow();
+                // 커밋한 데이터 정리 (다른 테스트의 findAll 가정 보호)
+                spotRepository.deleteById(spot.getId());
+                contentRepository.deleteById(content.getId());
+            }
         }
 
         @Test

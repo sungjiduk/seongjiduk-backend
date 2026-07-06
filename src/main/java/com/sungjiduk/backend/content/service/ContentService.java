@@ -37,6 +37,9 @@ public class ContentService {
      */
     private final Map<Long, AiSpotDescription> descriptionCache = new ConcurrentHashMap<>();
 
+    /** 작품별 describe 호출 락(single-flight). 동시 요청 중 첫 요청만 AI를 부르고 나머지는 캐시를 기다린다. */
+    private final Map<Long, Object> describeLocks = new ConcurrentHashMap<>();
+
     public ContentService(
             ContentRepository contentRepository,
             PilgrimageSpotRepository spotRepository,
@@ -113,12 +116,23 @@ public class ContentService {
      * 실패해도 목록 조회는 계속돼야 하므로(설명만 null) 예외는 삼킨다.
      */
     private void fetchMissingDescriptions(Content content, List<PilgrimageSpot> spots) {
-        List<PilgrimageSpot> missing = spots.stream()
-                .filter(spot -> !descriptionCache.containsKey(spot.getId()))
-                .toList();
-        if (missing.isEmpty()) {
+        if (spots.stream().allMatch(spot -> descriptionCache.containsKey(spot.getId()))) {
             return;
         }
+        Object lock = describeLocks.computeIfAbsent(content.getId(), id -> new Object());
+        synchronized (lock) {
+            // 락 획득 후 재확인 — 먼저 들어온 요청이 이미 채웠으면 호출 생략 (StrictMode 이중 fetch 등)
+            List<PilgrimageSpot> missing = spots.stream()
+                    .filter(spot -> !descriptionCache.containsKey(spot.getId()))
+                    .toList();
+            if (missing.isEmpty()) {
+                return;
+            }
+            callDescribe(content, missing);
+        }
+    }
+
+    private void callDescribe(Content content, List<PilgrimageSpot> missing) {
         try {
             AiDescribeResult result = aiDescribeClient.describe(new AiDescribeRequest(
                     new AiDescribeRequest.ContentInfo(content.getId(), content.getTitle()),
