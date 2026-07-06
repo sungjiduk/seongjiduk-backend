@@ -136,7 +136,7 @@ class ContentServiceTest {
                     "千代田区", 40, "https://maps.example/kanda"));
             given(aiDescribeClient.describe(any())).willReturn(new AiDescribeResult(
                     content.getId(), "openai",
-                    List.of(new AiSpotDescription(spot.getId(), "프리웜 설명", "프리웜 포인트"))));
+                    List.of(new AiSpotDescription(spot.getId(), "프리웜 설명", "프리웜 포인트", "칸다묘진", 40))));
 
             // when
             contentService.prewarmDescriptions(content.getId());
@@ -219,7 +219,7 @@ class ContentServiceTest {
                     "千代田区", 40, "https://maps.example/kanda"));
             given(aiDescribeClient.describe(any())).willReturn(new AiDescribeResult(
                     content.getId(), "openai",
-                    List.of(new AiSpotDescription(spot.getId(), "에피소드 1의 배경", "전통 신사의 분위기"))));
+                    List.of(new AiSpotDescription(spot.getId(), "에피소드 1의 배경", "전통 신사의 분위기", "칸다묘진", 40))));
 
             // when
             ContentSpotsResponse response = contentService.findContentSpots(content.getId());
@@ -228,6 +228,8 @@ class ContentServiceTest {
             ContentSpotsResponse.SpotSummary summary = response.spots().get(0);
             assertThat(summary.sceneDescription()).isEqualTo("에피소드 1의 배경");
             assertThat(summary.specialPoint()).isEqualTo("전통 신사의 분위기");
+            assertThat(summary.koreanName()).isEqualTo("칸다묘진");
+            assertThat(summary.recommendedDurationMin()).isEqualTo(40); // AI 추정치가 기본 30을 대체
         }
 
         @Test
@@ -265,7 +267,7 @@ class ContentServiceTest {
             given(aiDescribeClient.describe(any())).willAnswer(invocation -> {
                 Thread.sleep(300); // 첫 호출이 끝나기 전에 두 번째 요청이 겹치도록
                 return new AiDescribeResult(content.getId(), "openai",
-                        List.of(new AiSpotDescription(spot.getId(), "에피소드 1의 배경", "전통 신사의 분위기")));
+                        List.of(new AiSpotDescription(spot.getId(), "에피소드 1의 배경", "전통 신사의 분위기", "칸다묘진", 40)));
             });
 
             ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -307,7 +309,7 @@ class ContentServiceTest {
                     "千代田区", 40, "https://maps.example/kanda"));
             given(aiDescribeClient.describe(any())).willReturn(new AiDescribeResult(
                     content.getId(), "openai",
-                    List.of(new AiSpotDescription(spot.getId(), "에피소드 1의 배경", "전통 신사의 분위기"))));
+                    List.of(new AiSpotDescription(spot.getId(), "에피소드 1의 배경", "전통 신사의 분위기", "칸다묘진", 40))));
 
             // when
             contentService.findContentSpots(content.getId());

@@ -11,6 +11,7 @@ public record ContentSpotsResponse(
     public record SpotSummary(
             Long id,
             String name,
+            String koreanName,         // AI 한국어 표기 (미생성 시 null → 프론트는 원어 표시)
             String city,
             String address,
             double lat,

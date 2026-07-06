@@ -18,7 +18,9 @@ public record AiDescribeResult(
     public record AiSpotDescription(
             Long spotId,
             String sceneDescription,
-            String specialPoint
+            String specialPoint,
+            String koreanName,          // 한국어 표기 이름 (없으면 원어)
+            Integer recommendedMinutes  // AI 추정 체류시간(분)
     ) {
     }
 }

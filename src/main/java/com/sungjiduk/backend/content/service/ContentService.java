@@ -87,14 +87,16 @@ public class ContentService {
         List<ContentSpotsResponse.SpotSummary> summaries = spots.stream()
                 .map(spot -> {
                     AiSpotDescription description = descriptionCache.get(spot.getId());
+                    Integer aiMinutes = description == null ? null : description.recommendedMinutes();
                     return new ContentSpotsResponse.SpotSummary(
                             spot.getId(),
                             spot.getName(),
+                            description == null ? null : description.koreanName(),
                             spot.getCity(),
                             spot.getAddress(),
                             spot.getLat().doubleValue(),
                             spot.getLng().doubleValue(),
-                            spot.getRecommendedDurationMin(),
+                            aiMinutes != null ? aiMinutes : spot.getRecommendedDurationMin(),
                             spot.getReferenceUrl(),
                             description == null ? null : description.sceneDescription(),
                             description == null ? null : description.specialPoint(),
