@@ -68,7 +68,6 @@ public class AdminMajorService {
                 LocalDateTime start = start(date);
                 LocalDateTime end = end(date.plusDays(6));
 
-                WeekFields weekFields = WeekFields.of(DayOfWeek.MONDAY, 4);
                 int weekNum = getWeekNum(date);
 
                 dates.add(YearMonth.of(date.getYear(), date.getMonth()) + "-" + weekNum);
@@ -131,7 +130,6 @@ public class AdminMajorService {
                 LocalDateTime start = start(date);
                 LocalDateTime end = end(date.plusDays(6));
 
-                WeekFields weekFields = WeekFields.of(DayOfWeek.MONDAY, 4);
                 int weekNum = getWeekNum(date);
 
                 dates.add(YearMonth.of(date.getYear(), date.getMonth()) + "-" + weekNum);
@@ -199,7 +197,6 @@ public class AdminMajorService {
                 LocalDateTime start = start(date);
                 LocalDateTime end = end(date.plusDays(6));
 
-                WeekFields weekFields = WeekFields.of(DayOfWeek.MONDAY, 4);
                 int weekNum = getWeekNum(date);
 
                 dates.add(YearMonth.of(date.getYear(), date.getMonth()) + "-" + weekNum);
@@ -259,7 +256,6 @@ public class AdminMajorService {
                 LocalDateTime start = start(date);
                 LocalDateTime end = end(date.plusDays(6));
 
-                WeekFields weekFields = WeekFields.of(DayOfWeek.MONDAY, 4);
                 int weekNum = getWeekNum(date);
 
                 dates.add(YearMonth.of(date.getYear(), date.getMonth()) + "-" + weekNum);
@@ -327,7 +323,7 @@ public class AdminMajorService {
         List<Long> spotList = tripStopRepository.findMostFrequentSpotToday(startDate, endDate, PageRequest.of(0,
             (int)count));
 
-        long allCountSpot = tripPlanRepository.countAllByCreatedAtBetween(startDate, endDate);
+        long allCountSpot = tripStopRepository.countAllByCreatedAtBetween(startDate, endDate);
 
         if (allCountSpot == 0) {
             result.add(new AdminMajorContentSpotResponse.info("집계된 성지가 없습니다.", 0L, 0.0));
